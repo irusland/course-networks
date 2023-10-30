@@ -11,7 +11,7 @@ class SegmentFlag(IntEnum):
     # More flags possible
 
 
-@dataclasses.dataclass(init=True, eq=True)
+@dataclasses.dataclass(init=True, eq=True, frozen=True)
 class Segment:
     """
     ———————————————————————  32 bits  ————————————————————————
@@ -71,21 +71,27 @@ class Segment:
     segment_params: dict[str, Any]  # 0-40 bytes
     data: Optional[bytes]  # 0-1460(1420 if segment_params) bytes
 
+    _field_name_to_bytes_num = {
+        'sender_port': 2,
+        'receiver_port': 2,
+        'data_start_byte': 4,
+        'byte_to_read': 4,
+        'header_len': 1,
+        'segment_flags': 1,
+        'window_size': 2,
+        'check_sum': 2,
+        'urgent_pointer': 2,
+        'segment_params': 40,
+        'data': 1420,
+    }
+
+    @property
+    def size(self) -> int:
+        return sum(Segment._field_name_to_bytes_num.values())
+
     @staticmethod
     def get_bytes_num(field_name: str) -> int:
-        return {
-            'sender_port': 2,
-            'receiver_port': 2,
-            'data_start_byte': 4,
-            'byte_to_read': 4,
-            'header_len': 1,
-            'segment_flags': 1,
-            'window_size': 2,
-            'check_sum': 2,
-            'urgent_pointer': 2,
-            'segment_params': 40,
-            'data': 1420,
-        }[field_name]
+        return Segment._field_name_to_bytes_num[field_name]
 
     @staticmethod
     def get_max_value(field_name: str) -> int:
