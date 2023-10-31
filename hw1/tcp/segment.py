@@ -45,7 +45,7 @@ class Segment:
             + 40  # may be counted dynamically
         )
 
-    segment_flags: tuple[SegmentFlag]  # 1 byte
+    segment_flags: tuple[SegmentFlag, ...]  # 1 byte
     window_size: int  # 2 bytes
 
     @property
@@ -85,9 +85,7 @@ class Segment:
         'data': 1420,
     }
 
-    @property
-    def size(self) -> int:
-        return sum(Segment._field_name_to_bytes_num.values())
+    size = sum(_field_name_to_bytes_num.values())
 
     @staticmethod
     def get_bytes_num(field_name: str) -> int:

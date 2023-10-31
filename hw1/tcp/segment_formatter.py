@@ -1,7 +1,7 @@
 import json
 from typing import Iterable, Optional, Any
 
-from hw1.tcp.segment import Segment, SegmentFlag
+from tcp.segment import Segment, SegmentFlag
 
 
 class TCPSegmentFormatter:
