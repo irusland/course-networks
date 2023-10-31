@@ -1,4 +1,5 @@
 import dataclasses
+import logging
 from enum import IntEnum
 from typing import Any, Optional
 
@@ -11,7 +12,10 @@ class SegmentFlag(IntEnum):
     # More flags possible
 
 
-@dataclasses.dataclass(init=True, eq=True, frozen=True)
+logger = logging.getLogger(__name__)
+
+
+@dataclasses.dataclass(init=True, frozen=True)
 class Segment:
     """
     ———————————————————————  32 bits  ————————————————————————
@@ -50,21 +54,20 @@ class Segment:
 
     @property
     def check_sum(self) -> int:  # 2 bytes
-        check_sum = hash(
-            (
-                self.sender_port,
-                self.receiver_port,
-                self.data_start_byte,
-                self.byte_to_read,
-                self.header_len,
-                self.segment_flags,
-                self.window_size,
-                # self.check_sum,
-                self.urgent_pointer,
-                tuple(self.segment_params.items()),
-                self.data,
-            )
+        fields = (
+            self.sender_port,
+            self.receiver_port,
+            self.data_start_byte,
+            self.byte_to_read,
+            self.header_len,
+            self.segment_flags,
+            self.window_size,
+            # self.check_sum,
+            self.urgent_pointer,
+            tuple(self.segment_params.items()),
+            self.data,
         )
+        check_sum = hash(fields)
         return check_sum % self.get_max_value('check_sum')
 
     urgent_pointer: int  # 2 bytes
@@ -99,20 +102,22 @@ class Segment:
 
     def __repr__(self) -> str:
         kws = []
-        for field_name in [
-            'sender_port',
-            'receiver_port',
-            'data_start_byte',
-            'byte_to_read',
-            'header_len',
-            'segment_flags',
-            'window_size',
-            'check_sum',
-            'urgent_pointer',
-            'segment_params',
-            'data',
-        ]:
+        for field_name in self._field_name_to_bytes_num.keys():
             value = getattr(self, field_name)
             kws.append(f"{field_name}={value!r}")
 
         return "{}({})".format(type(self).__name__, ", ".join(kws))
+
+    def __hash__(self) -> int:
+        return self.check_sum
+
+    def __eq__(self, other) -> bool:
+        if "Segment" in str(type(other)):  # todo: fix relative import issue
+            for field in self._field_name_to_bytes_num.keys():
+                if getattr(self, field) != getattr(other, field):
+                    return False
+            return True
+        return False
+
+    def __post_init__(self):
+        object.__setattr__(self, 'segment_flags', tuple(sorted(self.segment_flags)))
