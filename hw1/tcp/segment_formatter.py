@@ -130,7 +130,7 @@ class TCPSegmentFormatter:
         self._validate_segment(
             segment=segment, header_len=header_len, check_sum=check_sum
         )
-
+        logger.debug('Parsed segment %s', segment)
         return segment
 
     def _get_int_from(self, raw: bytes, bytes_processed: int, field_name: str) -> tuple[int, int]:

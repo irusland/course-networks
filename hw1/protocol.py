@@ -270,11 +270,20 @@ class MyTCPProtocol(UDPBasedProtocol):
         self.sendto(segment_data)
         self._state = TCPState.CONNECTED
 
-
     @log_call
     def _on_recv_connected(self, received_segment: Segment):
-        if not received_segment.segment_flags:
-            self._recv_buffer.put(received_segment.data)
+        if received_segment.segment_flags == tuple():
+            return self._on_recv_data(received_segment)
+        elif received_segment.segment_flags == (SegmentFlag.FIN,):
+            raise NotImplementedError()
+        elif received_segment.segment_flags == (SegmentFlag.RST,):
+            raise NotImplementedError()
+
+        raise RuntimeError(f'Unreachable code with state {self._state}')
+
+    @log_call
+    def _on_recv_data(self, received_segment: Segment):
+        self._recv_buffer.put(received_segment.data)
 
         self._byte_to_read = received_segment.byte_to_read + received_segment.segment_params['data'] + 1
         ack_segment = Segment(
