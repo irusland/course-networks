@@ -21,13 +21,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+LOG_CALL_ENABLED = False
+
 
 def log_call(f):
-    @functools.wraps(f)
-    def _f(*args, **kwargs):
-        logger.info('%s%s', f.__name__, (args[1:], kwargs))
-        return f(*args, **kwargs)
-    return _f
+    if LOG_CALL_ENABLED:
+        @functools.wraps(f)
+        def _f(*args, **kwargs):
+            logger.info('%s%s', f.__name__, (args[1:], kwargs))
+            return f(*args, **kwargs)
+        return _f
+    return f
 
 
 class UDPBasedProtocol:
@@ -75,8 +79,7 @@ class MyTCPProtocol(UDPBasedProtocol):
         self._data_start_byte = 0
         self._byte_to_read = 0
 
-        self._reset_connect_retries()
-        self._reset_data_ack_retries()
+        self._reset_all_retries()
 
     @property
     def _state(self) -> TCPState:
@@ -94,6 +97,11 @@ class MyTCPProtocol(UDPBasedProtocol):
     @log_call
     def _reset_data_ack_retries(self):
         self._data_ack_retries = self._settings.data_ack_retries
+
+    @log_call
+    def _reset_all_retries(self):
+        self._reset_connect_retries()
+        self._reset_data_ack_retries()
 
     @log_call
     def send(self, data: bytes) -> int:
@@ -204,6 +212,8 @@ class MyTCPProtocol(UDPBasedProtocol):
             return self._on_recv_wait_for_connection_ack(segment)
         elif self._state == TCPState.CONNECTED:
             return self._on_recv_connected(segment)
+        elif self._state == TCPState.WAITING_FOR_DATA_ACK:
+            return self._on_recv_wait_for_data_ack(segment)
 
         raise RuntimeError(f'Unreachable code with state {self._state}')
 
@@ -263,7 +273,7 @@ class MyTCPProtocol(UDPBasedProtocol):
 
     @log_call
     def _on_recv_connected(self, received_segment: Segment):
-        if tuple() == received_segment.segment_flags:
+        if not received_segment.segment_flags:
             self._recv_buffer.put(received_segment.data)
 
         self._byte_to_read = received_segment.byte_to_read + received_segment.segment_params['data'] + 1
@@ -281,3 +291,11 @@ class MyTCPProtocol(UDPBasedProtocol):
 
         segment_data = self._formatter.serialize_segment(ack_segment)
         self.sendto(segment_data)
+
+    def _on_recv_wait_for_data_ack(self, segment: Segment):
+        if (SegmentFlag.ACK,) != segment.segment_flags:
+            raise TCPUnexpectedSegmentError(f'{segment}')
+
+        logger.info('Data was ACKed')
+        self._state = TCPState.CONNECTED
+        self._reset_all_retries()
