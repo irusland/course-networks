@@ -96,3 +96,23 @@ class Segment:
         byte_len = Segment.get_bytes_num(field_name=field_name)
         max_value = 2 ** (byte_len * 8)
         return max_value
+
+    def __repr__(self) -> str:
+        kws = []
+        for field_name in [
+            'sender_port',
+            'receiver_port',
+            'data_start_byte',
+            'byte_to_read',
+            'header_len',
+            'segment_flags',
+            'window_size',
+            'check_sum',
+            'urgent_pointer',
+            'segment_params',
+            'data',
+        ]:
+            value = getattr(self, field_name)
+            kws.append(f"{field_name}={value!r}")
+
+        return "{}({})".format(type(self).__name__, ", ".join(kws))

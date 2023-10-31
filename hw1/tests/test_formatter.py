@@ -30,6 +30,18 @@ from hw1.tcp.segment_formatter import TCPSegmentFormatter
             segment_params={'data': 100},
             data=(123456789).to_bytes(100, byteorder='big'),
         ),
+        Segment(
+            sender_port=28467,
+            receiver_port=28438,
+            data_start_byte=593,
+            byte_to_read=67,
+            segment_flags=(SegmentFlag.SYN, SegmentFlag.ACK),
+            window_size=1460,
+            urgent_pointer=0,
+            segment_params={},
+            data=None
+        )
+
     ]
 )
 def test_formatter_parses(segment):

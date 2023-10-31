@@ -1,17 +1,19 @@
 import json
+import logging
 from typing import Iterable, Optional, Any
 
 from tcp.segment import Segment, SegmentFlag
 
+logger = logging.getLogger(__name__)
+
 
 class TCPSegmentFormatter:
-
-
     def serialize(self, segments: Iterable[Segment]) -> Iterable[bytes]:
         for segment in segments:
             yield self.serialize_segment(segment)
 
     def serialize_segment(self, segment: Segment) -> bytes:
+        logger.debug('Serializing segment %s', segment)
         data: list[bytes] = []
 
         data.append(self._get_int_data(segment=segment, field_name='sender_port'))
@@ -171,7 +173,7 @@ class TCPSegmentFormatter:
         if segment.header_len != header_len:
             raise ValueError('invalid header len')
         if segment.check_sum != check_sum:
-            raise ValueError('invalid check_sum')
+            raise ValueError(f'invalid check_sum, expected "{check_sum}", actual: "{segment.check_sum}"')
         if segment.data is not None:
             if len(segment.data) != segment.segment_params['data']:
                 raise ValueError('invalid data len')
