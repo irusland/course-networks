@@ -60,7 +60,7 @@ class Segment:
             self.data_start_byte,
             self.byte_to_read,
             self.header_len,
-            self.segment_flags,
+            tuple(sorted(self.segment_flags)),
             self.window_size,
             # self.check_sum,
             self.urgent_pointer,
@@ -114,10 +114,11 @@ class Segment:
     def __eq__(self, other) -> bool:
         if "Segment" in str(type(other)):  # todo: fix relative import issue
             for field in self._field_name_to_bytes_num.keys():
+                if field == 'segment_flags':
+                    continue
                 if getattr(self, field) != getattr(other, field):
                     return False
+            if sorted(self.segment_flags) != sorted(other.segment_flags):
+                return False
             return True
         return False
-
-    def __post_init__(self):
-        object.__setattr__(self, 'segment_flags', tuple(sorted(self.segment_flags)))
