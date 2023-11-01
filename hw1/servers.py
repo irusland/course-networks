@@ -1,6 +1,9 @@
+import logging
 import os
 
 from protocol import MyTCPProtocol
+
+logger = logging.getLogger(__name__)
 
 
 class Base:
@@ -16,7 +19,8 @@ class EchoServer(Base):
         for _ in range(self.iterations):
             msg = self.socket.recv(self.msg_size)
             self.socket.send(msg)
-            
+
+
 class EchoClient(Base):
 
     def run(self):

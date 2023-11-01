@@ -18,3 +18,14 @@ class Buffer:
 
     def __len__(self):
         return len(self._buf)
+
+
+if __name__ == '__main__':
+    buffer = Buffer()
+    print(buffer.getvalue())
+    buffer.put(b'asd')
+    print(buffer.getvalue())
+    buffer.put(b'asd')
+    print(buffer.getvalue())
+    buffer.get(6)
+    print(buffer.getvalue())

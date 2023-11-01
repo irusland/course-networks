@@ -1,3 +1,4 @@
+import dataclasses
 import functools
 import logging
 import random
@@ -59,6 +60,13 @@ class TCPState(str, Enum):
     WAITING_FOR_DISCONNECTION_ACK = 'WAITING_FOR_DISCONNECTION_ACK'
 
 
+@dataclasses.dataclass(init=True, frozen=True)
+class Data:
+    data: bytes
+    to_send: int
+    was_sent: int
+
+
 class MyTCPProtocol(UDPBasedProtocol):
     def __init__(self, local_addr: tuple[str, int], remote_addr: tuple[str, int]):
         super().__init__(local_addr=local_addr, remote_addr=remote_addr)
@@ -105,10 +113,13 @@ class MyTCPProtocol(UDPBasedProtocol):
 
     @log_call
     def send(self, data: bytes) -> int:
-        return self._send(data=data)
+        logger.info("Send: %s", data)
+        return self._send(
+            data=Data(data=data, to_send=len(data), was_sent=0)
+        )
 
     @log_call
-    def _send(self, data: bytes) -> int:
+    def _send(self, data: Data) -> int:
         if self._state == TCPState.INITIAL:
             return self._on_initial(data=data)
         elif self._state == TCPState.CONNECTED:
@@ -121,9 +132,9 @@ class MyTCPProtocol(UDPBasedProtocol):
         raise RuntimeError(f'Unreachable code with state {self._state}')
 
     @log_call
-    def _on_initial(self, data: bytes) -> int:
+    def _on_initial(self, data: Data) -> int:
         self._connect()
-        return self.send(data=data)
+        return self._send(data=data)
 
     @log_call
     def _connect(self):
@@ -145,7 +156,7 @@ class MyTCPProtocol(UDPBasedProtocol):
         self._state = TCPState.WAITING_FOR_CONNECTION_SYN_ACK
 
     @log_call
-    def _on_connection_syn_ack_wait(self, data: bytes) -> int:
+    def _on_connection_syn_ack_wait(self, data: Data) -> int:
         if self._connect_retries > 0:
             self._connect_retries -= 1
             time.sleep(self._settings.connect_ack_wait.total_seconds())
@@ -155,10 +166,12 @@ class MyTCPProtocol(UDPBasedProtocol):
             self._reset_connect_retries()
             self._state = TCPState.INITIAL
             raise TCPConnectionACKTimeout()
-        return self._send(data)
+        return self._send(data=data)
 
     @log_call
-    def _on_connected(self, data: bytes) -> int:
+    def _on_connected(self, data: Data) -> int:
+        if data.to_send == data.was_sent:
+            return data.was_sent
         ack_segment = Segment(
             sender_port=self._sender_port,
             receiver_port=self._receiver_port,
@@ -167,18 +180,22 @@ class MyTCPProtocol(UDPBasedProtocol):
             segment_flags=tuple(),
             window_size=1 * 1460,
             urgent_pointer=0,
-            segment_params={'data': len(data)},
-            data=data,
+            segment_params={'data': data.to_send},
+            data=data.data,
         )
 
         syn_segment_data = self._formatter.serialize_segment(ack_segment)
 
         self.sendto(syn_segment_data)
         self._state = TCPState.WAITING_FOR_DATA_ACK
-        return self._send(data)
+        return self._send(
+            data=Data(
+                data=data.data, to_send=data.to_send, was_sent=data.to_send,
+            )
+        )
 
     @log_call
-    def _on_data_ack_wait(self, data: bytes) -> int:
+    def _on_data_ack_wait(self, data: Data) -> int:
         if self._data_ack_retries > 0:
             self._data_ack_retries -= 1
             time.sleep(self._settings.data_ack_wait.total_seconds())
@@ -192,8 +209,11 @@ class MyTCPProtocol(UDPBasedProtocol):
     @log_call
     def recv(self, n: int) -> bytes:
         while len(self._recv_buffer) == 0:
+            logger.info('Current recv buffer: %s', self._recv_buffer.getvalue())
             time.sleep(self._settings.recv_data_wait.total_seconds())
-        return self._recv_buffer.get(n)
+        data = bytes(self._recv_buffer.get(n))
+        logger.info("Recv: %s", data)
+        return data
 
     @log_call
     def _recv_worker(self):
@@ -305,6 +325,6 @@ class MyTCPProtocol(UDPBasedProtocol):
         if (SegmentFlag.ACK,) != segment.segment_flags:
             raise TCPUnexpectedSegmentError(f'{segment}')
 
-        logger.info('Data was ACKed')
+        logger.debug('Data was ACKed')
         self._state = TCPState.CONNECTED
         self._reset_all_retries()
