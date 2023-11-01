@@ -13,7 +13,7 @@ class TCPSegmentFormatter:
             yield self.serialize_segment(segment)
 
     def serialize_segment(self, segment: Segment) -> bytes:
-        # logger.debug('Serializing segment %s', segment)
+        logger.debug('Serializing segment %s', segment)
         data: list[bytes] = []
 
         data.append(self._get_int_data(segment=segment, field_name='sender_port'))
@@ -25,9 +25,7 @@ class TCPSegmentFormatter:
         data.append(self._get_flags_data(segment=segment))
 
         data.append(self._get_int_data(segment=segment, field_name='window_size'))
-        logger.info('check_sum %s', segment.data)
         data.append(self._get_int_data(segment=segment, field_name='check_sum'))
-        logger.info('got check_sum %s', segment.data)
         data.append(self._get_int_data(segment=segment, field_name='urgent_pointer'))
 
         data.append(self._get_segment_params(segment=segment))

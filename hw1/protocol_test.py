@@ -58,12 +58,12 @@ def setup_netem(packet_loss, duplicate, reorder):
 
 
 @pytest.mark.parametrize("iterations", [
-    1,
-    # 10,
+    # 1,
+    10,
     # 100,
     # 1000
 ])
-@pytest.mark.timeout(2)
+@pytest.mark.timeout(10)
 def test_basic(iterations):
     setup_netem(packet_loss=0.0, duplicate=0.0, reorder=0.0)
     run_echo_test(iterations=iterations, msg_size=11)

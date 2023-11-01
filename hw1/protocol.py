@@ -150,9 +150,7 @@ class MyTCPProtocol(UDPBasedProtocol):
             segment_params={},
             data=None,
         )
-
-        syn_segment_data = self._formatter.serialize_segment(syn_segment)
-        self.sendto(syn_segment_data)
+        self._send_segment(segment=syn_segment)
         self._state = TCPState.WAITING_FOR_CONNECTION_SYN_ACK
 
     @log_call
@@ -183,16 +181,18 @@ class MyTCPProtocol(UDPBasedProtocol):
             segment_params={'data': data.to_send},
             data=data.data,
         )
-
-        syn_segment_data = self._formatter.serialize_segment(ack_segment)
-
-        self.sendto(syn_segment_data)
+        self._send_segment(segment=ack_segment)
         self._state = TCPState.WAITING_FOR_DATA_ACK
         return self._send(
             data=Data(
                 data=data.data, to_send=data.to_send, was_sent=data.to_send,
             )
         )
+
+    def _send_segment(self, segment: Segment):
+        logger.info('send %s', segment)
+        segment_data = self._formatter.serialize_segment(segment)
+        self.sendto(segment_data)
 
     @log_call
     def _on_data_ack_wait(self, data: Data) -> int:
@@ -224,6 +224,7 @@ class MyTCPProtocol(UDPBasedProtocol):
     def _recv(self):
         data = self.recvfrom(Segment.size)
         segment = self._formatter.parse_segment(data)
+        logger.info('recv %s', segment)
         if self._state == TCPState.INITIAL:
             return self._on_recv_initial(segment)
         elif self._state == TCPState.WAITING_FOR_CONNECTION_SYN_ACK:
@@ -244,7 +245,7 @@ class MyTCPProtocol(UDPBasedProtocol):
 
         self._data_start_byte = random.randint(1, 1337)
         self._byte_to_read = received_segment.data_start_byte + 0 + 1
-        syn_segment = Segment(
+        syn_ack_segment = Segment(
             sender_port=self._sender_port,
             receiver_port=self._receiver_port,
             data_start_byte=self._data_start_byte,
@@ -255,10 +256,7 @@ class MyTCPProtocol(UDPBasedProtocol):
             segment_params={},
             data=None,
         )
-
-        syn_segment_data = self._formatter.serialize_segment(syn_segment)
-
-        self.sendto(syn_segment_data)
+        self._send_segment(segment=syn_ack_segment)
         self._state = TCPState.WAITING_FOR_CONNECTION_ACK
 
     @log_call
@@ -285,9 +283,7 @@ class MyTCPProtocol(UDPBasedProtocol):
             segment_params={},
             data=None,
         )
-
-        segment_data = self._formatter.serialize_segment(ack_segment)
-        self.sendto(segment_data)
+        self._send_segment(segment=ack_segment)
         self._state = TCPState.CONNECTED
 
     @log_call
@@ -317,9 +313,7 @@ class MyTCPProtocol(UDPBasedProtocol):
             segment_params={},
             data=None,
         )
-
-        segment_data = self._formatter.serialize_segment(ack_segment)
-        self.sendto(segment_data)
+        self._send_segment(segment=ack_segment)
 
     def _on_recv_wait_for_data_ack(self, segment: Segment):
         if (SegmentFlag.ACK,) != segment.segment_flags:
