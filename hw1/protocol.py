@@ -309,8 +309,6 @@ class MyTCPProtocol(UDPBasedProtocol):
 
     @log_call
     def _on_recv_data(self, received_segment: Segment):
-        self._recv_buffer.put(received_segment.data)
-
         self._byte_to_read = received_segment.byte_to_read + received_segment.segment_params['data'] + 1
         ack_segment = Segment(
             sender_port=self._sender_port,
@@ -323,7 +321,10 @@ class MyTCPProtocol(UDPBasedProtocol):
             segment_params={},
             data=None,
         )
-        self._send_segment(segment=ack_segment)
+        with self._send_change_state_lock:
+            self._send_segment(segment=ack_segment)
+
+        self._recv_buffer.put(received_segment.data)
 
     def _on_recv_wait_for_data_ack(self, segment: Segment):
         if (SegmentFlag.ACK,) != segment.segment_flags:
