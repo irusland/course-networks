@@ -16,7 +16,8 @@ class Base:
 class EchoServer(Base):
 
     def run(self):
-        for _ in range(self.iterations):
+        for i in range(self.iterations):
+            logger.info('Server iteration = %s/%s', i, self.iterations)
             msg = self.socket.recv(self.msg_size)
             self.socket.send(msg)
 
@@ -24,7 +25,8 @@ class EchoServer(Base):
 class EchoClient(Base):
 
     def run(self):
-        for _ in range(self.iterations):
+        for i in range(self.iterations):
+            logger.info('Client iteration = %s/%s', i, self.iterations)
             msg = os.urandom(self.msg_size)
             n = self.socket.send(msg)
             assert n == self.msg_size

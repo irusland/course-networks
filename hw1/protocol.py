@@ -40,6 +40,7 @@ class UDPBasedProtocol:
         self.udp_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
         self.remote_addr = remote_addr
         self.udp_socket.bind(local_addr)
+        self.udp_socket.setblocking(False)
 
     def sendto(self, data) -> int:
         logger.debug('Sending segment size: %s', len(data))
@@ -81,6 +82,7 @@ class MyTCPProtocol(UDPBasedProtocol):
         self._is_recv_worker_running.set()
 
         logger.info('starting worker')
+        self._send_change_state_lock = threading.Lock()
         threading.Thread(target=self._recv_worker, daemon=True).start()
 
         self._recv_buffer = Buffer()
@@ -150,8 +152,9 @@ class MyTCPProtocol(UDPBasedProtocol):
             segment_params={},
             data=None,
         )
-        self._send_segment(segment=syn_segment)
-        self._state = TCPState.WAITING_FOR_CONNECTION_SYN_ACK
+        with self._send_change_state_lock:
+            self._send_segment(segment=syn_segment)
+            self._state = TCPState.WAITING_FOR_CONNECTION_SYN_ACK
 
     @log_call
     def _on_connection_syn_ack_wait(self, data: Data) -> int:
@@ -181,8 +184,9 @@ class MyTCPProtocol(UDPBasedProtocol):
             segment_params={'data': data.to_send},
             data=data.data,
         )
-        self._send_segment(segment=ack_segment)
-        self._state = TCPState.WAITING_FOR_DATA_ACK
+        with self._send_change_state_lock:
+            self._send_segment(segment=ack_segment)
+            self._state = TCPState.WAITING_FOR_DATA_ACK
         return self._send(
             data=Data(
                 data=data.data, to_send=data.to_send, was_sent=data.to_send,
@@ -218,11 +222,15 @@ class MyTCPProtocol(UDPBasedProtocol):
     @log_call
     def _recv_worker(self):
         while self._is_recv_worker_running.is_set():
-            self._recv()
+            try:
+                with self._send_change_state_lock:
+                    data = self.recvfrom(Segment.size)
+            except BlockingIOError:
+                continue
+            self._recv(data=data)
 
     @log_call
-    def _recv(self):
-        data = self.recvfrom(Segment.size)
+    def _recv(self, data: bytes):
         segment = self._formatter.parse_segment(data)
         logger.info('recv %s', segment)
         if self._state == TCPState.INITIAL:
@@ -256,8 +264,9 @@ class MyTCPProtocol(UDPBasedProtocol):
             segment_params={},
             data=None,
         )
-        self._send_segment(segment=syn_ack_segment)
-        self._state = TCPState.WAITING_FOR_CONNECTION_ACK
+        with self._send_change_state_lock:
+            self._send_segment(segment=syn_ack_segment)
+            self._state = TCPState.WAITING_FOR_CONNECTION_ACK
 
     @log_call
     def _on_recv_wait_for_connection_ack(self, received_segment: Segment):
@@ -283,8 +292,9 @@ class MyTCPProtocol(UDPBasedProtocol):
             segment_params={},
             data=None,
         )
-        self._send_segment(segment=ack_segment)
-        self._state = TCPState.CONNECTED
+        with self._send_change_state_lock:
+            self._send_segment(segment=ack_segment)
+            self._state = TCPState.CONNECTED
 
     @log_call
     def _on_recv_connected(self, received_segment: Segment):
