@@ -78,8 +78,7 @@ class MyTCPProtocol(UDPBasedProtocol):
         self._settings = TCPSettings()
         self.__state: TCPState = TCPState.INITIAL
 
-        self._is_recv_worker_running = threading.Event()
-        self._is_recv_worker_running.set()
+        self._is_recv_worker_running = True
 
         logger.info('starting worker')
         self._send_change_state_lock = threading.Lock()
@@ -221,7 +220,7 @@ class MyTCPProtocol(UDPBasedProtocol):
 
     @log_call
     def _recv_worker(self):
-        while self._is_recv_worker_running.is_set():
+        while self._is_recv_worker_running:
             try:
                 data = self.recvfrom(Segment.size)
             except BlockingIOError:
