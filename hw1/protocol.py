@@ -223,10 +223,12 @@ class MyTCPProtocol(UDPBasedProtocol):
     def _recv_worker(self):
         while self._is_recv_worker_running.is_set():
             try:
-                with self._send_change_state_lock:
-                    data = self.recvfrom(Segment.size)
+                data = self.recvfrom(Segment.size)
             except BlockingIOError:
                 continue
+
+            with self._send_change_state_lock:
+                pass
             self._recv(data=data)
 
     @log_call
