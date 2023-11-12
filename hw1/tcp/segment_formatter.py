@@ -54,7 +54,7 @@ class TCPSegmentFormatter:
 
     def _get_int_data(self, segment: Segment, field_name: str) -> bytes:
         field_value = getattr(segment, field_name)
-        assert segment.get_max_value(field_name) > field_value
+        assert segment.get_max_value(field_name) > field_value  # todo rm
         return field_value.to_bytes(
             segment.get_bytes_num(field_name),
             byteorder='big'

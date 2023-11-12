@@ -1,5 +1,6 @@
 import os
 import random
+from pathlib import Path
 
 import pytest
 from testable_thread import TestableThread
@@ -32,14 +33,24 @@ def run_echo_test(iterations, msg_size):
 
     client_thread = TestableThread(target=client.run)
     server_thread = TestableThread(target=server.run)
+
     client_thread.daemon = True
     server_thread.daemon = True
 
-    client_thread.start()
-    server_thread.start()
+    # import yappi
+    # yappi.start()
+    try:
+        client_thread.start()
+        server_thread.start()
 
-    client_thread.join()
-    server_thread.join()
+        client_thread.join()
+        server_thread.join()
+    finally:
+        pass
+        # yappi.stop()
+        # path = Path('/app/prof')
+        # yappi.get_func_stats().save(path/'func.prof', type='pstat')
+        # # yappi.get_thread_stats().save(path/'thread.prof', type='pstat')
 
 
 current_netem_state = None
@@ -58,14 +69,14 @@ def setup_netem(packet_loss, duplicate, reorder):
 
 
 @pytest.mark.parametrize("iterations", [
-    # 1,
-    # 10,
-    # 50,
-    # 100,
-    500,
-    # 1000,
+    1,
+    10,
+    50,
+    100,
+    1000,
 ])
-@pytest.mark.timeout(10)
+# @pytest.mark.timeout(10)
+@pytest.mark.timeout(30)
 def test_basic(iterations):
     setup_netem(packet_loss=0.0, duplicate=0.0, reorder=0.0)
     run_echo_test(iterations=iterations, msg_size=11)

@@ -1,7 +1,7 @@
 import dataclasses
 import logging
 from enum import IntEnum
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 
 class SegmentFlag(IntEnum):
@@ -49,7 +49,7 @@ class Segment:
             + 40  # may be counted dynamically
         )
 
-    segment_flags: tuple[SegmentFlag, ...]  # 1 byte
+    segment_flags: Tuple[SegmentFlag, ...]  # 1 byte
     window_size: int  # 2 bytes
 
     @property

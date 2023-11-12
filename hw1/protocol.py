@@ -12,6 +12,7 @@ from tcp.data_segmentizer import TCPDataSegmentizer
 from tcp.errors import TCPConnectionACKTimeout, TCPUnexpectedSegmentError, TCPDataACKTimeout
 from tcp.segment import SegmentFlag, Segment
 from tcp.segment_formatter import TCPSegmentFormatter
+from tcp.segment_pickle_formatter import TCPSegmentPickleFormatter
 from tcp.settings import TCPSettings
 
 
@@ -73,7 +74,8 @@ class MyTCPProtocol(UDPBasedProtocol):
         super().__init__(local_addr=local_addr, remote_addr=remote_addr)
         self._sender_port = local_addr[1]
         self._receiver_port = remote_addr[1]
-        self._formatter = TCPSegmentFormatter()
+        # self._formatter = TCPSegmentFormatter()
+        self._formatter = TCPSegmentPickleFormatter()
         self._segmentizer = TCPDataSegmentizer()
         self._settings = TCPSettings()
         self.__state: TCPState = TCPState.INITIAL
@@ -82,13 +84,19 @@ class MyTCPProtocol(UDPBasedProtocol):
 
         logger.info('starting worker')
         self._send_change_state_lock = threading.Lock()
-        threading.Thread(target=self._recv_worker, daemon=True).start()
+        self._recv_worker_thread = threading.Thread(target=self._recv_worker, daemon=True)
+        self._recv_worker_thread.start()
 
         self._recv_buffer = Buffer()
         self._data_start_byte = 0
         self._byte_to_read = 0
 
         self._reset_all_retries()
+
+    def __del__(self):
+        self._is_recv_worker_running = False
+        self.udp_socket.close()
+        self._recv_worker_thread.join()
 
     @property
     def _state(self) -> TCPState:
@@ -278,7 +286,7 @@ class MyTCPProtocol(UDPBasedProtocol):
 
     @log_call
     def _on_recv_wait_for_connection_syn_ack(self, received_segment: Segment):
-        if (SegmentFlag.ACK, SegmentFlag.SYN) != received_segment.segment_flags:
+        if sorted((SegmentFlag.ACK, SegmentFlag.SYN)) != sorted(received_segment.segment_flags):
             raise TCPUnexpectedSegmentError(f'{received_segment}')
 
         self._byte_to_read = received_segment.byte_to_read + 1
