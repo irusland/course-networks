@@ -12,3 +12,7 @@ class TCPUnexpectedSegmentError(TCPError):
 
 class TCPDataACKTimeout(TCPError):
     ...
+
+
+class TCPDataSendRetryExhausted(TCPError):
+    ...

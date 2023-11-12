@@ -27,7 +27,8 @@ class EchoClient(Base):
     def run(self):
         for i in range(self.iterations):
             logger.info('Client iteration = %s/%s', i, self.iterations)
-            msg = os.urandom(self.msg_size)
-            n = self.socket.send(msg)
+            expected_msg = os.urandom(self.msg_size)
+            n = self.socket.send(expected_msg)
             assert n == self.msg_size
-            assert msg == self.socket.recv(n)
+            actual_msg = self.socket.recv(n)
+            assert actual_msg == expected_msg

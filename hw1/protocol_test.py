@@ -25,8 +25,8 @@ def run_echo_test(iterations, msg_size):
     b_addr = ('127.0.0.1', generate_port())
 
 
-    a = MyTCPProtocol(local_addr=a_addr, remote_addr=b_addr)
-    b = MyTCPProtocol(local_addr=b_addr, remote_addr=a_addr)
+    a = MyTCPProtocol(local_addr=a_addr, remote_addr=b_addr, name='client')
+    b = MyTCPProtocol(local_addr=b_addr, remote_addr=a_addr, name='server')
 
     client = EchoClient(a, iterations=iterations, msg_size=msg_size)
     server = EchoServer(b, iterations=iterations, msg_size=msg_size)
@@ -35,7 +35,9 @@ def run_echo_test(iterations, msg_size):
     server_thread = TestableThread(target=server.run)
 
     client_thread.daemon = True
+    client_thread.name = 'client'
     server_thread.daemon = True
+    server_thread.name = 'server'
 
     # import yappi
     # yappi.start()
@@ -80,12 +82,18 @@ def test_basic(iterations):
     setup_netem(packet_loss=0.0, duplicate=0.0, reorder=0.0)
     run_echo_test(iterations=iterations, msg_size=11)
 
-# @pytest.mark.parametrize("iterations", [10, 100, 1000])
-# @pytest.mark.timeout(20)
-# def test_small_loss(iterations):
-#     setup_netem(packet_loss=0.02, duplicate=0.0, reorder=0.0)
-#     run_echo_test(iterations=iterations, msg_size=14)
-#
+
+@pytest.mark.parametrize("iterations", [
+    10,
+    100,
+    1000
+])
+@pytest.mark.timeout(20)
+def test_small_loss(iterations):
+    setup_netem(packet_loss=0.02, duplicate=0.0, reorder=0.0)
+    run_echo_test(iterations=iterations, msg_size=14)
+
+
 # @pytest.mark.parametrize("iterations", [10, 100, 1000, 5000])
 # @pytest.mark.timeout(20)
 # def test_small_duplicate(iterations):

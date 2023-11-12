@@ -11,3 +11,5 @@ class TCPSettings:
 
     data_ack_wait = datetime.timedelta(milliseconds=1)
     data_ack_retries = 30
+
+    send_data_retries = 30

@@ -9,7 +9,10 @@ from enum import Enum
 
 from tcp.buffer import Buffer
 from tcp.data_segmentizer import TCPDataSegmentizer
-from tcp.errors import TCPConnectionACKTimeout, TCPUnexpectedSegmentError, TCPDataACKTimeout
+from tcp.errors import (
+    TCPConnectionACKTimeout, TCPUnexpectedSegmentError,
+    TCPDataACKTimeout, TCPDataSendRetryExhausted,
+)
 from tcp.segment import SegmentFlag, Segment
 from tcp.segment_formatter import TCPSegmentFormatter
 from tcp.segment_pickle_formatter import TCPSegmentPickleFormatter
@@ -66,11 +69,11 @@ class TCPState(str, Enum):
 class Data:
     data: bytes
     to_send: int
-    was_sent: int
+    data_start_byte: int
 
 
 class MyTCPProtocol(UDPBasedProtocol):
-    def __init__(self, local_addr: tuple[str, int], remote_addr: tuple[str, int]):
+    def __init__(self, local_addr: tuple[str, int], remote_addr: tuple[str, int], name: str):
         super().__init__(local_addr=local_addr, remote_addr=remote_addr)
         self._sender_port = local_addr[1]
         self._receiver_port = remote_addr[1]
@@ -85,11 +88,12 @@ class MyTCPProtocol(UDPBasedProtocol):
         logger.info('starting worker')
         self._send_change_state_lock = threading.Lock()
         self._recv_worker_thread = threading.Thread(target=self._recv_worker, daemon=True)
+        self._recv_worker_thread.name = f'{name}_recv_worker'
         self._recv_worker_thread.start()
 
         self._recv_buffer = Buffer()
         self._data_start_byte = 0
-        self._byte_to_read = 0
+        self.__byte_to_read = 0
 
         self._reset_all_retries()
 
@@ -107,6 +111,15 @@ class MyTCPProtocol(UDPBasedProtocol):
         logger.info(f'{self.__state} -> {value}: State changed.')
         self.__state = value
 
+    @property
+    def _byte_to_read(self) -> int:
+        return self.__byte_to_read
+
+    @_byte_to_read.setter
+    def _byte_to_read(self, value: int) -> None:
+        logger.info(f'{self.__byte_to_read} -> {value}: byte_to_read changed.')
+        self.__byte_to_read = value
+
     @log_call
     def _reset_connect_retries(self):
         self._connect_retries = self._settings.connect_ack_retries
@@ -116,15 +129,20 @@ class MyTCPProtocol(UDPBasedProtocol):
         self._data_ack_retries = self._settings.data_ack_retries
 
     @log_call
+    def _reset_send_retries(self):
+        self._send_retries = self._settings.send_data_retries
+
+    @log_call
     def _reset_all_retries(self):
         self._reset_connect_retries()
         self._reset_data_ack_retries()
+        self._reset_send_retries()
 
     @log_call
     def send(self, data: bytes) -> int:
         logger.info("Send: %s", data)
         return self._send(
-            data=Data(data=data, to_send=len(data), was_sent=0)
+            data=Data(data=data, to_send=len(data), data_start_byte=self._data_start_byte)
         )
 
     @log_call
@@ -147,14 +165,13 @@ class MyTCPProtocol(UDPBasedProtocol):
 
     @log_call
     def _connect(self):
-        self._data_start_byte = random.randint(1, 1337)
         syn_segment = Segment(
             sender_port=self._sender_port,
             receiver_port=self._receiver_port,
             data_start_byte=self._data_start_byte,
             byte_to_read=0,
             segment_flags=(SegmentFlag.SYN,),
-            window_size=1 * 1460,
+            window_size=1 * Segment.size,
             urgent_pointer=0,
             segment_params={},
             data=None,
@@ -178,27 +195,24 @@ class MyTCPProtocol(UDPBasedProtocol):
 
     @log_call
     def _on_connected(self, data: Data) -> int:
-        if data.to_send == data.was_sent:
-            return data.was_sent
-        ack_segment = Segment(
+        if data.data_start_byte + data.to_send <= self._data_start_byte:
+            logger.info('Data was sent, all ACKs received')
+            return data.to_send
+        segment = Segment(
             sender_port=self._sender_port,
             receiver_port=self._receiver_port,
             data_start_byte=self._data_start_byte,
             byte_to_read=self._byte_to_read,
             segment_flags=tuple(),
-            window_size=1 * 1460,
+            window_size=1 * Segment.size,
             urgent_pointer=0,
             segment_params={'data': data.to_send},
             data=data.data,
         )
         with self._send_change_state_lock:
-            self._send_segment(segment=ack_segment)
+            self._send_segment(segment=segment)
             self._state = TCPState.WAITING_FOR_DATA_ACK
-        return self._send(
-            data=Data(
-                data=data.data, to_send=data.to_send, was_sent=data.to_send,
-            )
-        )
+        return self._send(data=data)
 
     def _send_segment(self, segment: Segment):
         logger.info('send %s', segment)
@@ -211,9 +225,25 @@ class MyTCPProtocol(UDPBasedProtocol):
             self._data_ack_retries -= 1
             time.sleep(self._settings.data_ack_wait.total_seconds())
         else:
+            logger.info('Timeout waiting for data ACK, retry')
+            self._send_retries -= 1
+            if self._send_retries <= 0:
+                raise TCPDataSendRetryExhausted()
             self._reset_data_ack_retries()
-            self._state = TCPState.INITIAL
-            raise TCPDataACKTimeout()
+            segment = Segment(
+                sender_port=self._sender_port,
+                receiver_port=self._receiver_port,
+                data_start_byte=self._data_start_byte,
+                byte_to_read=self._byte_to_read,
+                segment_flags=tuple(),
+                window_size=1 * Segment.size,
+                urgent_pointer=0,
+                segment_params={'data': data.to_send},
+                data=data.data,
+            )
+            with self._send_change_state_lock:
+                self._send_segment(segment=segment)
+
         return self._send(data)
 
     # ------------------–------------------- RECV --------------------------------------
@@ -260,7 +290,6 @@ class MyTCPProtocol(UDPBasedProtocol):
         if (SegmentFlag.SYN,) != received_segment.segment_flags:
             raise TCPUnexpectedSegmentError(f'{received_segment}')
 
-        self._data_start_byte = random.randint(1, 1337)
         self._byte_to_read = received_segment.data_start_byte + 0 + 1
         syn_ack_segment = Segment(
             sender_port=self._sender_port,
@@ -268,7 +297,7 @@ class MyTCPProtocol(UDPBasedProtocol):
             data_start_byte=self._data_start_byte,
             byte_to_read=self._byte_to_read,
             segment_flags=(SegmentFlag.SYN, SegmentFlag.ACK),
-            window_size=1 * 1460,
+            window_size=1 * Segment.size,
             urgent_pointer=0,
             segment_params={},
             data=None,
@@ -296,7 +325,7 @@ class MyTCPProtocol(UDPBasedProtocol):
             data_start_byte=self._data_start_byte,
             byte_to_read=self._byte_to_read,
             segment_flags=(SegmentFlag.ACK,),
-            window_size=1 * 1460,
+            window_size=1 * Segment.size,
             urgent_pointer=0,
             segment_params={},
             data=None,
@@ -318,14 +347,34 @@ class MyTCPProtocol(UDPBasedProtocol):
 
     @log_call
     def _on_recv_data(self, received_segment: Segment):
-        self._byte_to_read = received_segment.byte_to_read + received_segment.segment_params['data'] + 1
+        data_len = received_segment.segment_params['data']
+        logger.info(
+            'self._byte_to_read %s, received_segment.data_start_byte %s',
+            self._byte_to_read, received_segment.data_start_byte
+        )
+        if received_segment.data_start_byte == self._byte_to_read:
+            # получили текущий сегмент данных
+            logger.info('_on_recv_data current segment')
+            self._byte_to_read = (
+                received_segment.data_start_byte
+                + data_len
+                + 1
+            )
+            self._recv_buffer.put(received_segment.data)
+        elif received_segment.data_start_byte > self._byte_to_read:
+            # получили сегмент данных из будущего
+            raise TCPUnexpectedSegmentError(received_segment)
+        else:
+            # получили старый сегмент данных из-за ретрая
+            logger.info('_on_recv_data old segment, just ACK')
+
         ack_segment = Segment(
             sender_port=self._sender_port,
             receiver_port=self._receiver_port,
             data_start_byte=self._data_start_byte,
             byte_to_read=self._byte_to_read,
             segment_flags=(SegmentFlag.ACK,),
-            window_size=1 * 1460,
+            window_size=1 * Segment.size,
             urgent_pointer=0,
             segment_params={},
             data=None,
@@ -333,12 +382,16 @@ class MyTCPProtocol(UDPBasedProtocol):
         with self._send_change_state_lock:
             self._send_segment(segment=ack_segment)
 
-        self._recv_buffer.put(received_segment.data)
-
     def _on_recv_wait_for_data_ack(self, segment: Segment):
         if (SegmentFlag.ACK,) != segment.segment_flags:
+            if segment.segment_flags == tuple():
+                return self._on_recv_data(segment)
             raise TCPUnexpectedSegmentError(f'{segment}')
 
-        logger.debug('Data was ACKed')
+        if self._data_start_byte >= segment.byte_to_read:
+            logger.info('Old ACK received, skip ACK')
+            return
+        self._data_start_byte = segment.byte_to_read
         self._state = TCPState.CONNECTED
         self._reset_all_retries()
+        logger.debug('Data was ACKed')
