@@ -3,6 +3,7 @@ import functools
 import logging
 import random
 import socket
+import sys
 import threading
 import time
 from enum import Enum
@@ -27,6 +28,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 LOG_CALL_ENABLED = False
+sys.setrecursionlimit(2000)
 
 
 def log_call(f):
@@ -186,11 +188,13 @@ class MyTCPProtocol(UDPBasedProtocol):
             self._connect_retries -= 1
             time.sleep(self._settings.connect_ack_wait.total_seconds())
         else:
-            logger.info('Retry exhausted waiting for SYN, ACK')
-
+            logger.info('Timeout waiting for SYN, ACK, retry')
+            self._send_retries -= 1
+            if self._send_retries <= 0:
+                raise TCPDataSendRetryExhausted()
             self._reset_connect_retries()
-            self._state = TCPState.INITIAL
-            raise TCPConnectionACKTimeout()
+            self._connect()
+
         return self._send(data=data)
 
     @log_call
@@ -308,10 +312,17 @@ class MyTCPProtocol(UDPBasedProtocol):
 
     @log_call
     def _on_recv_wait_for_connection_ack(self, received_segment: Segment):
-        if (SegmentFlag.ACK,) != received_segment.segment_flags:
+        if (SegmentFlag.ACK,) == received_segment.segment_flags:
+            self._state = TCPState.CONNECTED
+        elif (SegmentFlag.SYN,) == received_segment.segment_flags:
+            logger.info('Got SYN again, retry SYN ACK')
+            self._on_recv_initial(received_segment=received_segment)
+        elif tuple() == received_segment.segment_flags:
+            logger.info('Got data already, believe that connect was ACKed')
+            self._state = TCPState.CONNECTED
+            self._on_recv_connected(received_segment=received_segment)
+        else:
             raise TCPUnexpectedSegmentError(f'{received_segment}')
-
-        self._state = TCPState.CONNECTED
 
     @log_call
     def _on_recv_wait_for_connection_syn_ack(self, received_segment: Segment):
