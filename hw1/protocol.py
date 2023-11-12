@@ -74,8 +74,8 @@ class MyTCPProtocol(UDPBasedProtocol):
         super().__init__(local_addr=local_addr, remote_addr=remote_addr)
         self._sender_port = local_addr[1]
         self._receiver_port = remote_addr[1]
-        # self._formatter = TCPSegmentFormatter()
-        self._formatter = TCPSegmentPickleFormatter()
+        self._formatter = TCPSegmentFormatter()
+        # self._formatter = TCPSegmentPickleFormatter()
         self._segmentizer = TCPDataSegmentizer()
         self._settings = TCPSettings()
         self.__state: TCPState = TCPState.INITIAL

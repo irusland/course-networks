@@ -51,4 +51,4 @@ def test_formatter_parses(segment):
     parsed_segment = formatter.parse_segment(raw_segment=data)
 
     assert segment == parsed_segment
-    assert len(data) == segment.size == parsed_segment.size == 1480
+    assert len(data) == segment.size == parsed_segment.size == Segment.size
