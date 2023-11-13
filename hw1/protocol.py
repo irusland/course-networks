@@ -17,8 +17,7 @@ from tcp.errors import (
 from tcp.segment import SegmentFlag, Segment
 from tcp.segment_formatter import TCPSegmentFormatter
 from tcp.segment_pickle_formatter import TCPSegmentPickleFormatter
-from tcp.settings import TCPSettings
-
+from tcp.settings import TCPSettings, MAX_LOG_DATA_SIZE
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -146,7 +145,7 @@ class MyTCPProtocol(UDPBasedProtocol):
 
     @log_call
     def send(self, data: bytes) -> int:
-        logger.info("Send: %s", data)
+        logger.info("Send: %s %s", len(data), data[:MAX_LOG_DATA_SIZE])
         return self._send(
             data=Data(data=data, to_send=len(data), data_start_byte=self._data_start_byte)
         )
@@ -206,6 +205,9 @@ class MyTCPProtocol(UDPBasedProtocol):
         if data.data_start_byte + data.to_send <= self._data_start_byte:
             logger.info('Data was sent, all ACKs received')
             return data.to_send
+
+        data_start = self._data_start_byte - data.data_start_byte
+        data_to_send = data.data[data_start:data_start + Segment.get_bytes_num('data')]
         segment = Segment(
             sender_port=self._sender_port,
             receiver_port=self._receiver_port,
@@ -214,8 +216,8 @@ class MyTCPProtocol(UDPBasedProtocol):
             segment_flags=tuple(),
             window_size=1 * Segment.size,
             urgent_pointer=0,
-            segment_params={'data': data.to_send},
-            data=data.data,
+            segment_params={'data': len(data_to_send)},
+            data=data_to_send,
         )
         with self._send_change_state_lock:
             self._send_segment(segment=segment)
@@ -223,8 +225,8 @@ class MyTCPProtocol(UDPBasedProtocol):
         return self._send(data=data)
 
     def _send_segment(self, segment: Segment):
-        logger.info('send %s', segment)
         segment_data = self._formatter.serialize_segment(segment)
+        logger.info('send %s %s', len(segment_data), segment)
         self.sendto(segment_data)
 
     @log_call
@@ -238,19 +240,7 @@ class MyTCPProtocol(UDPBasedProtocol):
             if self._send_retries <= 0:
                 raise TCPDataSendRetryExhausted()
             self._reset_data_ack_retries()
-            segment = Segment(
-                sender_port=self._sender_port,
-                receiver_port=self._receiver_port,
-                data_start_byte=self._data_start_byte,
-                byte_to_read=self._byte_to_read,
-                segment_flags=tuple(),
-                window_size=1 * Segment.size,
-                urgent_pointer=0,
-                segment_params={'data': data.to_send},
-                data=data.data,
-            )
-            with self._send_change_state_lock:
-                self._send_segment(segment=segment)
+            return self._on_connected(data=data)
 
         return self._send(data)
 
@@ -261,7 +251,7 @@ class MyTCPProtocol(UDPBasedProtocol):
             logger.debug('Current recv buffer: %s', self._recv_buffer.getvalue())
             time.sleep(self._settings.recv_data_wait.total_seconds())
         data = bytes(self._recv_buffer.get(n))
-        logger.info("Recv: %s", data)
+        logger.info("Recv: %s %s", len(data), data[:MAX_LOG_DATA_SIZE])
         return data
 
     @log_call
@@ -283,7 +273,7 @@ class MyTCPProtocol(UDPBasedProtocol):
     @log_call
     def _recv(self, data: bytes):
         segment = self._formatter.parse_segment(data)
-        logger.info('recv %s', segment)
+        logger.info('recv %s %s', len(data), segment)
         if self._state == TCPState.INITIAL:
             return self._on_recv_initial(segment)
         elif self._state == TCPState.WAITING_FOR_CONNECTION_SYN_ACK:
@@ -302,7 +292,7 @@ class MyTCPProtocol(UDPBasedProtocol):
         if (SegmentFlag.SYN,) != received_segment.segment_flags:
             raise TCPUnexpectedSegmentError(f'{received_segment}')
 
-        self._byte_to_read = received_segment.data_start_byte + 0 + 1
+        self._byte_to_read = received_segment.data_start_byte
         syn_ack_segment = Segment(
             sender_port=self._sender_port,
             receiver_port=self._receiver_port,

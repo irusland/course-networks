@@ -3,6 +3,8 @@ import logging
 from enum import IntEnum
 from typing import Any, Optional, Tuple
 
+from tcp.settings import MAX_LOG_DATA_SIZE
+
 
 class SegmentFlag(IntEnum):
     ACK = 1
@@ -104,6 +106,10 @@ class Segment:
         kws = []
         for field_name in self._field_name_to_bytes_num.keys():
             value = getattr(self, field_name)
+            if field_name == 'data' and value is not None:
+                data_len = len(value)
+                if data_len > MAX_LOG_DATA_SIZE:
+                    value = f'{value[:MAX_LOG_DATA_SIZE]}...{data_len-MAX_LOG_DATA_SIZE}...'
             kws.append(f"{field_name}={value!r}")
 
         return "{}({})".format(type(self).__name__, ", ".join(kws))
