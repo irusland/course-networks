@@ -119,7 +119,7 @@ class MyTCPProtocol(UDPBasedProtocol):
 
     @_byte_to_read.setter
     def _byte_to_read(self, value: int) -> None:
-        logger.info(f'{self.__byte_to_read} -> {value}: byte_to_read changed.')
+        logger.debug(f'{self.__byte_to_read} -> {value}: byte_to_read changed.')
         self.__byte_to_read = value
 
     @log_call
@@ -254,7 +254,7 @@ class MyTCPProtocol(UDPBasedProtocol):
     @log_call
     def recv(self, n: int) -> bytes:
         while len(self._recv_buffer) == 0:
-            logger.info('Current recv buffer: %s', self._recv_buffer.getvalue())
+            logger.debug('Current recv buffer: %s', self._recv_buffer.getvalue())
             time.sleep(self._settings.recv_data_wait.total_seconds())
         data = bytes(self._recv_buffer.get(n))
         logger.info("Recv: %s", data)
@@ -262,15 +262,19 @@ class MyTCPProtocol(UDPBasedProtocol):
 
     @log_call
     def _recv_worker(self):
-        while self._is_recv_worker_running:
-            try:
-                data = self.recvfrom(Segment.size)
-            except BlockingIOError:
-                continue
+        try:
+            while self._is_recv_worker_running:
+                try:
+                    data = self.recvfrom(Segment.size)
+                except BlockingIOError:
+                    continue
 
-            with self._send_change_state_lock:
-                pass
-            self._recv(data=data)
+                with self._send_change_state_lock:
+                    pass
+                self._recv(data=data)
+        except Exception as e:
+            logger.exception('Exception in worker')
+            raise e
 
     @log_call
     def _recv(self, data: bytes):
@@ -325,11 +329,10 @@ class MyTCPProtocol(UDPBasedProtocol):
             raise TCPUnexpectedSegmentError(f'{received_segment}')
 
     @log_call
-    def _on_recv_wait_for_connection_syn_ack(self, received_segment: Segment):
+    def _on_recv_wait_for_connection_syn_ack(self, received_segment: Segment, change_state_to_connected: bool = True):
         if sorted((SegmentFlag.ACK, SegmentFlag.SYN)) != sorted(received_segment.segment_flags):
             raise TCPUnexpectedSegmentError(f'{received_segment}')
 
-        self._byte_to_read = received_segment.byte_to_read + 1
         ack_segment = Segment(
             sender_port=self._sender_port,
             receiver_port=self._receiver_port,
@@ -343,18 +346,25 @@ class MyTCPProtocol(UDPBasedProtocol):
         )
         with self._send_change_state_lock:
             self._send_segment(segment=ack_segment)
-            self._state = TCPState.CONNECTED
+            if change_state_to_connected:
+                self._state = TCPState.CONNECTED
 
     @log_call
     def _on_recv_connected(self, received_segment: Segment):
         if received_segment.segment_flags == tuple():
             return self._on_recv_data(received_segment)
+        elif received_segment.segment_flags == (SegmentFlag.ACK,):
+            logger.debug('Duplicated ACK possible, process')
+            return self._on_recv_wait_for_data_ack(received_segment)
+        elif received_segment.segment_flags == (SegmentFlag.ACK, SegmentFlag.SYN):
+            logger.debug('Duplicated SYN ACK possible, process')
+            return self._on_recv_wait_for_connection_syn_ack(received_segment)
         elif received_segment.segment_flags == (SegmentFlag.FIN,):
             raise NotImplementedError()
         elif received_segment.segment_flags == (SegmentFlag.RST,):
             raise NotImplementedError()
 
-        raise RuntimeError(f'Unreachable code with state {self._state}')
+        raise RuntimeError(f'Unreachable code with state {self._state} {received_segment.segment_flags}')
 
     @log_call
     def _on_recv_data(self, received_segment: Segment):
@@ -397,6 +407,8 @@ class MyTCPProtocol(UDPBasedProtocol):
         if (SegmentFlag.ACK,) != segment.segment_flags:
             if segment.segment_flags == tuple():
                 return self._on_recv_data(segment)
+            elif segment.segment_flags == (SegmentFlag.ACK, SegmentFlag.SYN):
+                return self._on_recv_wait_for_connection_syn_ack(segment, change_state_to_connected=False)
             raise TCPUnexpectedSegmentError(f'{segment}')
 
         if self._data_start_byte >= segment.byte_to_read:
