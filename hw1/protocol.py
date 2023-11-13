@@ -99,10 +99,14 @@ class MyTCPProtocol(UDPBasedProtocol):
 
         self._reset_all_retries()
 
-    def __del__(self):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
         self._is_recv_worker_running = False
-        self.udp_socket.close()
         self._recv_worker_thread.join()
+        self.udp_socket.close()
+        return False
 
     @property
     def _state(self) -> TCPState:

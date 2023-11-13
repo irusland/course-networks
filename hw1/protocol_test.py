@@ -24,35 +24,35 @@ def run_echo_test(iterations, msg_size):
     a_addr = ('127.0.0.1', generate_port())
     b_addr = ('127.0.0.1', generate_port())
 
+    with (
+        MyTCPProtocol(local_addr=a_addr, remote_addr=b_addr, name='client') as a,
+        MyTCPProtocol(local_addr=b_addr, remote_addr=a_addr, name='server') as b
+    ):
+        client = EchoClient(a, iterations=iterations, msg_size=msg_size)
+        server = EchoServer(b, iterations=iterations, msg_size=msg_size)
 
-    a = MyTCPProtocol(local_addr=a_addr, remote_addr=b_addr, name='client')
-    b = MyTCPProtocol(local_addr=b_addr, remote_addr=a_addr, name='server')
+        client_thread = TestableThread(target=client.run)
+        server_thread = TestableThread(target=server.run)
 
-    client = EchoClient(a, iterations=iterations, msg_size=msg_size)
-    server = EchoServer(b, iterations=iterations, msg_size=msg_size)
+        client_thread.daemon = True
+        client_thread.name = 'client'
+        server_thread.daemon = True
+        server_thread.name = 'server'
 
-    client_thread = TestableThread(target=client.run)
-    server_thread = TestableThread(target=server.run)
+        # import yappi
+        # yappi.start()
+        try:
+            client_thread.start()
+            server_thread.start()
 
-    client_thread.daemon = True
-    client_thread.name = 'client'
-    server_thread.daemon = True
-    server_thread.name = 'server'
-
-    # import yappi
-    # yappi.start()
-    try:
-        client_thread.start()
-        server_thread.start()
-
-        client_thread.join()
-        server_thread.join()
-    finally:
-        pass
-        # yappi.stop()
-        # path = Path('/app/prof')
-        # yappi.get_func_stats().save(path/'func.prof', type='pstat')
-        # # yappi.get_thread_stats().save(path/'thread.prof', type='pstat')
+            client_thread.join()
+            server_thread.join()
+        finally:
+            pass
+            # yappi.stop()
+            # path = Path('/app/prof')
+            # yappi.get_func_stats().save(path/'func.prof', type='pstat')
+            # # yappi.get_thread_stats().save(path/'thread.prof', type='pstat')
 
 
 current_netem_state = None
@@ -117,7 +117,11 @@ def test_high_loss(iterations):
     run_echo_test(iterations=iterations, msg_size=17)
 
 
-@pytest.mark.parametrize("iterations", [10, 100, 1000])
+@pytest.mark.parametrize("iterations", [
+    10,
+    100,
+    1000
+])
 @pytest.mark.timeout(20)
 def test_high_duplicate(iterations):
     setup_netem(packet_loss=0.0, duplicate=0.1, reorder=0.0)
