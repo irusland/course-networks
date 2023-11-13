@@ -128,18 +128,22 @@ def test_high_duplicate(iterations):
     run_echo_test(iterations=iterations, msg_size=14)
 
 
-# @pytest.mark.parametrize("msg_size", [
-#     # 100,
-#     100_000,
-#     # 10_000_000
+@pytest.mark.parametrize("msg_size", [
+    2000,
+    100,
+    100_000,
+    # 10_000_000
+])
+@pytest.mark.timeout(180)
+def test_large_message(msg_size):
+    setup_netem(packet_loss=0.02, duplicate=0.02, reorder=0.01)
+    run_echo_test(iterations=2, msg_size=msg_size)
+
+
+# @pytest.mark.parametrize("iterations", [
+#     1_000,
+#     50_000,
 # ])
-# @pytest.mark.timeout(180)
-# def test_large_message(msg_size):
-#     setup_netem(packet_loss=0.02, duplicate=0.02, reorder=0.01)
-#     run_echo_test(iterations=2, msg_size=msg_size)
-
-
-# @pytest.mark.parametrize("iterations", [50_000])
 # @pytest.mark.timeout(60)
 # def test_perfomance(iterations):
 #     setup_netem(packet_loss=0.02, duplicate=0.02, reorder=0.01)

@@ -16,3 +16,7 @@ class TCPDataACKTimeout(TCPError):
 
 class TCPDataSendRetryExhausted(TCPError):
     ...
+
+
+class TCPTooMuchDataError(TCPError):
+    ...

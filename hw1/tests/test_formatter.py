@@ -31,6 +31,17 @@ from hw1.tcp.segment_formatter import TCPSegmentFormatter
             data=(123456789).to_bytes(100, byteorder='big'),
         ),
         Segment(
+            sender_port=random.randint(1, 5000),
+            receiver_port=random.randint(1, 5000),
+            data_start_byte=random.randint(1, 5000),
+            byte_to_read=random.randint(1, 5000),
+            segment_flags=(SegmentFlag.SYN,),
+            window_size=random.randint(1, 10) * Segment.size,
+            urgent_pointer=0,
+            segment_params={'data': 100, 'size': 10_000_000_000_000_000},
+            data=(123456789).to_bytes(100, byteorder='big'),
+        ),
+        Segment(
             sender_port=28467,
             receiver_port=28438,
             data_start_byte=593,

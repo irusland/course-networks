@@ -12,7 +12,7 @@ from tcp.buffer import Buffer
 from tcp.data_segmentizer import TCPDataSegmentizer
 from tcp.errors import (
     TCPConnectionACKTimeout, TCPUnexpectedSegmentError,
-    TCPDataACKTimeout, TCPDataSendRetryExhausted,
+    TCPDataACKTimeout, TCPDataSendRetryExhausted, TCPTooMuchDataError,
 )
 from tcp.segment import SegmentFlag, Segment
 from tcp.segment_formatter import TCPSegmentFormatter
@@ -92,6 +92,8 @@ class MyTCPProtocol(UDPBasedProtocol):
         self._recv_worker_thread.name = f'{name}_recv_worker'
         self._recv_worker_thread.start()
 
+        self._recv_pre_buffer = []
+        self._recv_pre_buffer_total_size = 0
         self._recv_buffer = Buffer()
         self._data_start_byte = 0
         self.__byte_to_read = 0
@@ -202,6 +204,8 @@ class MyTCPProtocol(UDPBasedProtocol):
 
     @log_call
     def _on_connected(self, data: Data) -> int:
+        logger.info('Data processed %s/%s', self._data_start_byte - data.data_start_byte, data.to_send)
+
         if data.data_start_byte + data.to_send <= self._data_start_byte:
             logger.info('Data was sent, all ACKs received')
             return data.to_send
@@ -216,7 +220,7 @@ class MyTCPProtocol(UDPBasedProtocol):
             segment_flags=tuple(),
             window_size=1 * Segment.size,
             urgent_pointer=0,
-            segment_params={'data': len(data_to_send)},
+            segment_params={'data': len(data_to_send), 'size': data.to_send},
             data=data_to_send,
         )
         with self._send_change_state_lock:
@@ -363,6 +367,7 @@ class MyTCPProtocol(UDPBasedProtocol):
     @log_call
     def _on_recv_data(self, received_segment: Segment):
         data_len = received_segment.segment_params['data']
+        total_data_len = received_segment.segment_params['size']
         logger.info(
             'self._byte_to_read %s, received_segment.data_start_byte %s',
             self._byte_to_read, received_segment.data_start_byte
@@ -373,9 +378,25 @@ class MyTCPProtocol(UDPBasedProtocol):
             self._byte_to_read = (
                 received_segment.data_start_byte
                 + data_len
-                + 1
             )
-            self._recv_buffer.put(received_segment.data)
+
+            if self._recv_pre_buffer_total_size < total_data_len:
+                self._recv_pre_buffer_total_size += len(received_segment.data)
+                logger.info(
+                    'Accumulated in buffer %s / %s bytes',
+                    self._recv_pre_buffer_total_size,
+                    total_data_len
+                )
+                self._recv_pre_buffer.append(received_segment.data)
+
+            if self._recv_pre_buffer_total_size == total_data_len:
+                logger.info('Flushing %s bytes from buffer', self._recv_pre_buffer_total_size)
+                self._recv_buffer.put(b''.join(self._recv_pre_buffer))
+                self._recv_pre_buffer = []
+                self._recv_pre_buffer_total_size = 0
+            elif self._recv_pre_buffer_total_size > total_data_len:
+                raise TCPTooMuchDataError(f'in buffer {self._recv_pre_buffer_total_size} expected {total_data_len}')
+
         elif received_segment.data_start_byte > self._byte_to_read:
             # получили сегмент данных из будущего
             raise TCPUnexpectedSegmentError(received_segment)

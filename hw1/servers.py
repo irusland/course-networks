@@ -31,4 +31,7 @@ class EchoClient(Base):
             n = self.socket.send(expected_msg)
             assert n == self.msg_size
             actual_msg = self.socket.recv(n)
+            actual_len = len(actual_msg)
+            expected_len = len(expected_msg)
             assert actual_msg == expected_msg
+
