@@ -98,6 +98,8 @@ class MyTCPProtocol(UDPBasedProtocol):
         self._data_start_byte = 0
         self.__byte_to_read = 0
 
+        self._non_acked_size = 0
+
         self._reset_all_retries()
 
     def __enter__(self):
@@ -178,7 +180,7 @@ class MyTCPProtocol(UDPBasedProtocol):
             data_start_byte=self._data_start_byte,
             byte_to_read=0,
             segment_flags=(SegmentFlag.SYN,),
-            window_size=1 * Segment.size,
+            window_size=1,
             urgent_pointer=0,
             segment_params={},
             data=None,
@@ -210,22 +212,33 @@ class MyTCPProtocol(UDPBasedProtocol):
             logger.info('Data was sent, all ACKs received')
             return data.to_send
 
-        data_start = self._data_start_byte - data.data_start_byte
-        data_to_send = data.data[data_start:data_start + Segment.get_bytes_num('data')]
-        segment = Segment(
-            sender_port=self._sender_port,
-            receiver_port=self._receiver_port,
-            data_start_byte=self._data_start_byte,
-            byte_to_read=self._byte_to_read,
-            segment_flags=tuple(),
-            window_size=1 * Segment.size,
-            urgent_pointer=0,
-            segment_params={'data': len(data_to_send), 'size': data.to_send},
-            data=data_to_send,
-        )
-        with self._send_change_state_lock:
-            self._send_segment(segment=segment)
-            self._state = TCPState.WAITING_FOR_DATA_ACK
+        window_data_start_byte = self._data_start_byte
+        was_sent_in_window = 0
+        for s in range(self._settings.window_size // Segment.get_bytes_num('data')):
+            data_start = window_data_start_byte - data.data_start_byte + was_sent_in_window
+            data_to_send = data.data[data_start:data_start + Segment.get_bytes_num('data')]
+            if data_start >= data.to_send:
+                break
+            if len(data_to_send) == 0:
+                logger.error('data_to_send len 0 %s %s %s %s', was_sent_in_window, data.to_send, data_start, s)
+
+            segment = Segment(
+                sender_port=self._sender_port,
+                receiver_port=self._receiver_port,
+                data_start_byte=data_start + data.data_start_byte,
+                byte_to_read=self._byte_to_read,
+                segment_flags=tuple(),
+                window_size=1,
+                urgent_pointer=0,
+                segment_params={'data': len(data_to_send), 'size': data.to_send},
+                data=data_to_send,
+            )
+            was_sent_in_window += len(data_to_send)
+            with self._send_change_state_lock:
+                self._send_segment(segment=segment)
+            logger.info('Was sent: %s / %s bytes, in window %s', was_sent_in_window, data.to_send, self._settings.window_size)
+
+        self._state = TCPState.WAITING_FOR_DATA_ACK
         return self._send(data=data)
 
     def _send_segment(self, segment: Segment):
@@ -303,7 +316,7 @@ class MyTCPProtocol(UDPBasedProtocol):
             data_start_byte=self._data_start_byte,
             byte_to_read=self._byte_to_read,
             segment_flags=(SegmentFlag.SYN, SegmentFlag.ACK),
-            window_size=1 * Segment.size,
+            window_size=1,
             urgent_pointer=0,
             segment_params={},
             data=None,
@@ -337,7 +350,7 @@ class MyTCPProtocol(UDPBasedProtocol):
             data_start_byte=self._data_start_byte,
             byte_to_read=self._byte_to_read,
             segment_flags=(SegmentFlag.ACK,),
-            window_size=1 * Segment.size,
+            window_size=1,
             urgent_pointer=0,
             segment_params={},
             data=None,
@@ -381,7 +394,8 @@ class MyTCPProtocol(UDPBasedProtocol):
             )
 
             if self._recv_pre_buffer_total_size < total_data_len:
-                self._recv_pre_buffer_total_size += len(received_segment.data)
+                self._recv_pre_buffer_total_size += data_len
+                self._non_acked_size += data_len
                 logger.info(
                     'Accumulated in buffer %s / %s bytes',
                     self._recv_pre_buffer_total_size,
@@ -394,29 +408,48 @@ class MyTCPProtocol(UDPBasedProtocol):
                 self._recv_buffer.put(b''.join(self._recv_pre_buffer))
                 self._recv_pre_buffer = []
                 self._recv_pre_buffer_total_size = 0
+                self._non_acked_size = self._settings.window_size
             elif self._recv_pre_buffer_total_size > total_data_len:
                 raise TCPTooMuchDataError(f'in buffer {self._recv_pre_buffer_total_size} expected {total_data_len}')
 
+            if self._non_acked_size >= self._settings.window_size:
+                logger.info('Batch ACK of %s bytes with ws %s', self._non_acked_size, self._settings.window_size)
+                self._non_acked_size = 0
+                ack_segment = Segment(
+                    sender_port=self._sender_port,
+                    receiver_port=self._receiver_port,
+                    data_start_byte=self._data_start_byte,
+                    byte_to_read=self._byte_to_read,
+                    segment_flags=(SegmentFlag.ACK,),
+                    window_size=1,
+                    urgent_pointer=0,
+                    segment_params={},
+                    data=None,
+                )
+                with self._send_change_state_lock:
+                    self._send_segment(segment=ack_segment)
+
         elif received_segment.data_start_byte > self._byte_to_read:
             # получили сегмент данных из будущего
-            raise TCPUnexpectedSegmentError(received_segment)
+            # raise TCPUnexpectedSegmentError(received_segment)
+            logger.warning('Got future segment %s', received_segment)
         else:
             # получили старый сегмент данных из-за ретрая
             logger.info('_on_recv_data old segment, just ACK')
 
-        ack_segment = Segment(
-            sender_port=self._sender_port,
-            receiver_port=self._receiver_port,
-            data_start_byte=self._data_start_byte,
-            byte_to_read=self._byte_to_read,
-            segment_flags=(SegmentFlag.ACK,),
-            window_size=1 * Segment.size,
-            urgent_pointer=0,
-            segment_params={},
-            data=None,
-        )
-        with self._send_change_state_lock:
-            self._send_segment(segment=ack_segment)
+            ack_segment = Segment(
+                sender_port=self._sender_port,
+                receiver_port=self._receiver_port,
+                data_start_byte=self._data_start_byte,
+                byte_to_read=self._byte_to_read,
+                segment_flags=(SegmentFlag.ACK,),
+                window_size=1,
+                urgent_pointer=0,
+                segment_params={},
+                data=None,
+            )
+            with self._send_change_state_lock:
+                self._send_segment(segment=ack_segment)
 
     def _on_recv_wait_for_data_ack(self, segment: Segment):
         if (SegmentFlag.ACK,) != segment.segment_flags:

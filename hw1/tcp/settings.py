@@ -3,6 +3,7 @@ import datetime
 
 
 MAX_LOG_DATA_SIZE = 42
+MAX_DATA_SIZE = 14200
 
 
 @dataclasses.dataclass(init=True)
@@ -16,3 +17,5 @@ class TCPSettings:
     data_ack_retries = 30
 
     send_data_retries = 30
+
+    window_size = 8 * MAX_DATA_SIZE

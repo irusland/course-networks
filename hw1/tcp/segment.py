@@ -3,7 +3,7 @@ import logging
 from enum import IntEnum
 from typing import Any, Optional, Tuple
 
-from tcp.settings import MAX_LOG_DATA_SIZE
+from tcp.settings import MAX_LOG_DATA_SIZE, MAX_DATA_SIZE
 
 
 class SegmentFlag(IntEnum):
@@ -87,7 +87,7 @@ class Segment:
         'check_sum': 2,
         'urgent_pointer': 2,
         'segment_params': 40,
-        'data': 14200,
+        'data': MAX_DATA_SIZE,
     }
 
     size = sum(_field_name_to_bytes_num.values())

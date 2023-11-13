@@ -173,7 +173,7 @@ class TCPSegmentFormatter:
         if segment.header_len != header_len:
             raise ValueError('invalid header len')
         if segment.check_sum != check_sum:
-            raise ValueError(f'invalid check_sum, expected "{check_sum}", actual: "{segment.check_sum}"')
+            raise ValueError(f'invalid check_sum, expected "{check_sum}", actual: "{segment.check_sum}" of segment {segment}')
         if segment.data is not None:
             if len(segment.data) != segment.segment_params['data']:
                 raise ValueError('invalid data len')

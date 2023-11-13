@@ -142,7 +142,7 @@ def test_large_message(msg_size):
 
 # @pytest.mark.parametrize("iterations", [
 #     1_000,
-#     50_000,
+#     # 50_000,
 # ])
 # @pytest.mark.timeout(60)
 # def test_perfomance(iterations):
