@@ -132,7 +132,7 @@ def test_high_duplicate(iterations):
     2000,
     100,
     100_000,
-    # 10_000_000
+    10_000_000
 ])
 @pytest.mark.timeout(180)
 def test_large_message(msg_size):

@@ -87,7 +87,7 @@ class Segment:
         'check_sum': 2,
         'urgent_pointer': 2,
         'segment_params': 40,
-        'data': 1420,
+        'data': 14200,
     }
 
     size = sum(_field_name_to_bytes_num.values())

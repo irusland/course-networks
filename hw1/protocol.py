@@ -27,7 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 LOG_CALL_ENABLED = False
-sys.setrecursionlimit(2000)
+sys.setrecursionlimit(20000)
 
 
 def log_call(f):
